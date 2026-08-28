@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOVEX STUDIO PRO</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;800;900&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+<div class="topbar">
+<div class="logo"><div class="logo-icon">N</div> NOVEX <span>STUDIO</span> PRO</div>
+<div style="display:flex;gap:6px;align-items:center">
+<div class="res-group">
+<button class="btn-small active" onclick="setRes(1280,720,this)">16:9</button>
+<button class="btn-small" onclick="setRes(720,1280,this)">9:16</button>
+<button class="btn-small" onclick="setRes(1080,1080,this)">1:1</button>
+</div>
+<button class="btn-small save" onclick="saveLayout()">💾 Save</button>
+<span id="recTime" style="font-size:11px;color:#ff2d55;display:none">● REC 00:00</span>
+</div>
+</div>
+<div class="workspace">
+<div class="top-row">
+<div class="panel"><div class="preview-header"><span>PREVIEW</span><div style="display:flex;gap:4px"><button class="btn-small" onclick="forcePCcam()">💻 PC Cam</button><button class="btn-small" onclick="openLowerThird()">🔻 Lower</button><button class="btn-small" onclick="openTextModal()">+ Text</button></div></div><div class="preview-wrap" id="previewWrap"><span class="badge badge-preview">PREVIEW</span><canvas id="previewCanvas" width="1280" height="720"></canvas><div id="layersContainer"></div></div></div>
+<div class="panel live"><div class="preview-header"><span>LIVE → FB / YT / TIKTOK</span><span style="color:#ff2d55">● Live</span></div><div class="preview-wrap"><span class="badge badge-live" id="liveBadge">● OFF</span><canvas id="liveCanvas" width="1280" height="720"></canvas></div></div>
+</div>
+<div class="center-bar"><button class="trans-btn" onclick="goLive()">CUT TO LIVE →</button><button class="btn-small" onclick="fillSelected()">↔️ Fill</button><button class="btn-small" onclick="centerSelected()">🎯 Center</button><button class="btn-small" onclick="bringForward()">⬆️ Front</button><button class="btn-small" onclick="sendBack()">⬇️ Back</button><span id="selectedInfo"></span></div>
+<div class="bottom-row">
+<div class="panel"><div class="panel-title"><span>SCENES</span><button class="add-btn" onclick="addScene()">+</button></div><div id="sceneList" class="scene-list"></div></div>
+<div class="panel"><div class="panel-title"><span>LAYERS</span><button class="add-btn" onclick="openTextModal()">+</button></div><div id="layerList" class="layer-list"></div></div>
+<div class="panel"><div class="panel-title"><span>🎨 BG + PRESETS</span></div><div class="bg-panel"><div class="grid2"><button class="btn-small" onclick="setBg('color','#000')">⬛ Black</button><button class="btn-small" onclick="setBg('color',bgColor.value)">🎨 Color</button><button class="btn-small" onclick="setBg('gradient')">🟣 Grad</button><button class="btn-small" onclick="setBg('blur',18)">🌫️ Blur</button><button class="btn-small p" onclick="bgImageInput.click()">🖼️ Image</button><button class="btn-small g" onclick="bgVideoInput.click()">🎥 Video</button></div><input type="color" id="bgColor" value="#7c5cff"><div class="grid5"><button class="btn-small" onclick="loadPresetBg('https://images.unsplash.com/photo-1598488035139-bdbb22374218?q=80&w=800')">🌌 Neon</button><button class="btn-small" onclick="loadPresetBg('https://images.unsplash.com/photo-1497366216548-37526070297c?q=80&w=800')">🏢 Office</button><button class="btn-small" onclick="loadPresetBg('https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800')">🏖️ Beach</button><button class="btn-small" onclick="loadPresetBg('https://images.unsplash.com/photo-1555099962-4199c345e5dd?q=80&w=800')">🌃 City</button><button class="btn-small" onclick="loadPresetBg('https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800')">🎨 Art</button></div><div class="flex"><button class="btn-small flex1" onclick="bgAudioInput.click()">🎵 Music</button><button class="btn-small" onclick="stopBgAudio()">⏹️</button></div><input type="range" id="bgMusicVol" min="0" max="100" value="25" oninput="setBgMusicVol(this.value)"><div id="bgStatus">BG: Black</div></div></div>
+<div class="panel"><div class="panel-title"><span>SOURCES</span></div><div class="source-list"><div class="source" onclick="previewSource('camera')">📷 Camera</div><div class="source" onclick="previewSource('screen')">🖥️ Screen</div><div class="source" onclick="openLowerThird()">🔻 Lower Third</div><div class="source" onclick="openTextModal()">📝 Text</div><div class="source" onclick="logoInput.click()">🖼️ Logo</div><div class="source" onclick="fillSelected()">↔️ Fill Screen</div></div></div>
+<div class="panel pad"><div class="mic"><span>🎙️ Mic</span><span id="micDb">-inf</span></div><div class="meter"><div id="micMeter" class="meter-level"></div></div><div style="margin-top:10px"><input id="opacityRange" type="range" min="10" max="100" value="100" style="width:48%" oninput="updateStyle()"><input id="blurRange" type="range" min="0" max="20" value="0" style="width:48%" oninput="updateStyle()"></div><div class="grid2 mt"><button class="btn-small" id="recBtn" onclick="toggleRecord()">● REC</button><button class="btn-small livebtn" onclick="openGoLiveModal()">📡 LIVE</button></div></div>
+</div>
+</div>
+<div class="controls"><button class="control-btn">NOVEX STUDIO PRO</button><div style="display:flex;gap:6px"><button class="control-btn" onclick="openSettings()">⚙️ Devices</button><button class="control-btn" onclick="saveLayout()">💾 Save</button><button class="control-btn" id="bottomRecBtn" onclick="toggleRecord()">● REC</button><button class="control-btn go" onclick="openGoLiveModal()">● GO LIVE</button></div></div>
+</div>
+<input type="file" id="logoInput" accept="image/*" hidden><input type="file" id="bgImageInput" accept="image/*" hidden><input type="file" id="bgVideoInput" accept="video/*" hidden><input type="file" id="bgAudioInput" accept="audio/*" hidden>
+<video id="camVideo" autoplay muted playsinline hidden></video><video id="bgVideo" loop muted playsinline hidden></video><audio id="bgAudio" loop hidden></audio>
+<div id="textOverlay" class="overlay" onclick="if(event.target===this)closeTextModal()"><div class="modal"><h3>📝 Text</h3><textarea id="textInput" placeholder="Type..."></textarea><div class="flex mt"><input id="fontSize" type="range" min="16" max="180" value="56" class="flex1"><input id="textColor" type="color" value="#ffffff"></div><div class="flex mt"><input type="checkbox" id="scrollCheck"><label>Scroll</label><input id="scrollSpeed" type="range" min="1" max="20" value="5" class="flex1"></div><div class="end mt"><button class="control-btn" onclick="closeTextModal()">Cancel</button><button class="btn-p" onclick="applyText()">+ Add</button></div></div></div>
+<div id="lowerOverlay" class="overlay" onclick="if(event.target===this)closeLowerThird()"><div class="modal"><h3>🔻 Lower Third</h3><input id="ltName" type="text" placeholder="NOVEX STUDIO PRO"><input id="ltTitle" type="text" placeholder="LIVE"><div class="flex mt"><input id="ltColor1" type="color" value="#7c5cff"><input id="ltColor2" type="color" value="#22c55e"><select id="ltStyle"><option value="gradient">Gradient</option><option value="solid">Solid</option><option value="news">News Red</option><option value="gold">Gold</option></select></div><div class="end mt"><button class="control-btn" onclick="closeLowerThird()">Cancel</button><button class="btn-p" onclick="applyLowerThird()">Add</button></div></div></div>
+<div id="settingsOverlay" class="overlay" onclick="if(event.target===this)closeSettings()"><div class="modal"><h3>⚙️ Devices - PC Cam Fix</h3><select id="cameraSelect"></select><select id="micSelect" style="margin-top:10px"></select><div class="end mt"><button class="btn-small" onclick="forcePCcam()">💻 Force PC Cam</button><button class="btn-p" onclick="closeSettings()">Apply</button></div></div></div>
+<div id="goLiveOverlay" class="overlay" onclick="if(event.target===this)closeGoLiveModal()"><div class="modal"><h3>📡 NOVEX LIVE - All Platforms</h3><p style="font-size:11px;color:#778195">Restream.io → Add FB + YT + TikTok → Copy WHIP URL + Token</p><input id="whipUrl" type="text" placeholder="https://whip.restream.io/whip/..."><input id="whipToken" type="text" placeholder="rk_..."><div class="mt"><button id="realLiveBtn" onclick="startRealWHIP()" class="btn-live">🔴 GO LIVE NOW - ALL</button></div><div class="flex mt"><button onclick="stopWHIP()" class="control-btn flex1">⏹️ Stop</button></div></div></div>
+<script src="script.js"></script>
+</body>
+</html>
