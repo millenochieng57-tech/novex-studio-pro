@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NOVEX STUDIO PRO</title>
+  <script>
+// KILL DROIDCAM FOREVER LOCK
+localStorage.setItem('novex_forced_cam','pc');
+if(navigator.mediaDevices){
+  const original = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
+  navigator.mediaDevices.enumerateDevices = async () => {
+    const devices = await original();
+    return devices.filter(d => !d.label.toLowerCase().includes('droid'));
+  };
+}
+</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
