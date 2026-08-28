@@ -3,19 +3,12 @@
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>NOVEX STUDIO PRO</title>
-  <script>
-// KILL DROIDCAM FOREVER LOCK
-localStorage.setItem('novex_forced_cam','pc');
-if(navigator.mediaDevices){
-  const original = navigator.mediaDevices.enumerateDevices.bind(navigator.mediaDevices);
-  navigator.mediaDevices.enumerateDevices = async () => {
-    const devices = await original();
-    return devices.filter(d => !d.label.toLowerCase().includes('droid'));
-  };
-}
-</script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600;800;900&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
+<script>
+// NOVEX ANTI-DROIDCAM LOCK - Hides DroidCam from browser
+const DROID_FILTER = (label) => label.toLowerCase().includes('droid') || label.toLowerCase().includes('virtual');
+</script>
 </head>
 <body>
 <div class="app">
@@ -33,7 +26,7 @@ if(navigator.mediaDevices){
 </div>
 <div class="workspace">
 <div class="top-row">
-<div class="panel"><div class="preview-header"><span>PREVIEW</span><div style="display:flex;gap:4px"><button class="btn-small" onclick="forcePCcam()">💻 PC Cam</button><button class="btn-small" onclick="openLowerThird()">🔻 Lower</button><button class="btn-small" onclick="openTextModal()">+ Text</button></div></div><div class="preview-wrap" id="previewWrap"><span class="badge badge-preview">PREVIEW</span><canvas id="previewCanvas" width="1280" height="720"></canvas><div id="layersContainer"></div></div></div>
+<div class="panel"><div class="preview-header"><span>PREVIEW</span><div style="display:flex;gap:4px"><button class="btn-small" onclick="forcePCcam()" style="background:#22c55e">💻 PC Cam FIX</button><button class="btn-small" onclick="openLowerThird()">🔻 Lower</button><button class="btn-small" onclick="openTextModal()">+ Text</button></div></div><div class="preview-wrap" id="previewWrap"><span class="badge badge-preview">PREVIEW</span><canvas id="previewCanvas" width="1280" height="720"></canvas><div id="layersContainer"></div></div></div>
 <div class="panel live"><div class="preview-header"><span>LIVE → FB / YT / TIKTOK</span><span style="color:#ff2d55">● Live</span></div><div class="preview-wrap"><span class="badge badge-live" id="liveBadge">● OFF</span><canvas id="liveCanvas" width="1280" height="720"></canvas></div></div>
 </div>
 <div class="center-bar"><button class="trans-btn" onclick="goLive()">CUT TO LIVE →</button><button class="btn-small" onclick="fillSelected()">↔️ Fill</button><button class="btn-small" onclick="centerSelected()">🎯 Center</button><button class="btn-small" onclick="bringForward()">⬆️ Front</button><button class="btn-small" onclick="sendBack()">⬇️ Back</button><span id="selectedInfo"></span></div>
@@ -51,7 +44,7 @@ if(navigator.mediaDevices){
 <video id="camVideo" autoplay muted playsinline hidden></video><video id="bgVideo" loop muted playsinline hidden></video><audio id="bgAudio" loop hidden></audio>
 <div id="textOverlay" class="overlay" onclick="if(event.target===this)closeTextModal()"><div class="modal"><h3>📝 Text</h3><textarea id="textInput" placeholder="Type..."></textarea><div class="flex mt"><input id="fontSize" type="range" min="16" max="180" value="56" class="flex1"><input id="textColor" type="color" value="#ffffff"></div><div class="flex mt"><input type="checkbox" id="scrollCheck"><label>Scroll</label><input id="scrollSpeed" type="range" min="1" max="20" value="5" class="flex1"></div><div class="end mt"><button class="control-btn" onclick="closeTextModal()">Cancel</button><button class="btn-p" onclick="applyText()">+ Add</button></div></div></div>
 <div id="lowerOverlay" class="overlay" onclick="if(event.target===this)closeLowerThird()"><div class="modal"><h3>🔻 Lower Third</h3><input id="ltName" type="text" placeholder="NOVEX STUDIO PRO"><input id="ltTitle" type="text" placeholder="LIVE"><div class="flex mt"><input id="ltColor1" type="color" value="#7c5cff"><input id="ltColor2" type="color" value="#22c55e"><select id="ltStyle"><option value="gradient">Gradient</option><option value="solid">Solid</option><option value="news">News Red</option><option value="gold">Gold</option></select></div><div class="end mt"><button class="control-btn" onclick="closeLowerThird()">Cancel</button><button class="btn-p" onclick="applyLowerThird()">Add</button></div></div></div>
-<div id="settingsOverlay" class="overlay" onclick="if(event.target===this)closeSettings()"><div class="modal"><h3>⚙️ Devices - PC Cam Fix</h3><select id="cameraSelect"></select><select id="micSelect" style="margin-top:10px"></select><div class="end mt"><button class="btn-small" onclick="forcePCcam()">💻 Force PC Cam</button><button class="btn-p" onclick="closeSettings()">Apply</button></div></div></div>
+<div id="settingsOverlay" class="overlay" onclick="if(event.target===this)closeSettings()"><div class="modal"><h3>⚙️ Devices - PC Cam FIXED</h3><p style="font-size:10px;color:#22c55e">Green = PC Cam (Safe) | Red = DroidCam (Blocked as default)</p><select id="cameraSelect"></select><select id="micSelect" style="margin-top:10px"></select><div class="end mt"><button class="btn-small" onclick="forcePCcam()" style="background:#22c55e">💻 Force PC Cam NOW</button><button class="btn-p" onclick="closeSettings()">Apply</button></div></div></div>
 <div id="goLiveOverlay" class="overlay" onclick="if(event.target===this)closeGoLiveModal()"><div class="modal"><h3>📡 NOVEX LIVE - All Platforms</h3><p style="font-size:11px;color:#778195">Restream.io → Add FB + YT + TikTok → Copy WHIP URL + Token</p><input id="whipUrl" type="text" placeholder="https://whip.restream.io/whip/..."><input id="whipToken" type="text" placeholder="rk_..."><div class="mt"><button id="realLiveBtn" onclick="startRealWHIP()" class="btn-live">🔴 GO LIVE NOW - ALL</button></div><div class="flex mt"><button onclick="stopWHIP()" class="control-btn flex1">⏹️ Stop</button></div></div></div>
 <script src="script.js"></script>
 </body>
