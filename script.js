@@ -1,6 +1,7 @@
 let previewStream=null,selectedCamera=null,selectedMic=null,scenes=[{id:1,name:'Main',layers:[]}],activeSceneId=1,layers=[],selectedId=null,dragState=null,resW=1280,resH=720,mediaRecorder=null,recordedChunks=[],isRecording=false,whipPC=null,bg={type:'black',value:'#000',blur:18},bgImg=null;
 const bgVideoEl=document.getElementById('bgVideo'),bgAudioEl=document.getElementById('bgAudio'),previewCanvas=document.getElementById('previewCanvas'),previewCtx=previewCanvas.getContext('2d'),liveCanvas=document.getElementById('liveCanvas'),liveCtx=liveCanvas.getContext('2d'),camVideo=document.getElementById('camVideo'),layersContainer=document.getElementById('layersContainer');
 const bgColor=document.getElementById('bgColor'),bgImageInput=document.getElementById('bgImageInput'),bgVideoInput=document.getElementById('bgVideoInput'),bgAudioInput=document.getElementById('bgAudioInput'),logoInput=document.getElementById('logoInput');
+
 function getActiveScene(){return scenes.find(s=>s.id===activeSceneId);}
 function saveSceneLayers(){const sc=getActiveScene(); if(sc) sc.layers=JSON.parse(JSON.stringify(layers.map(l=>({type:l.type,x:l.x,y:l.y,w:l.w,h:l.h,order:l.order,data:l.type==='image'?{url:l.data.img?.src,opacity:l.data.opacity,blur:l.data.blur}:l.data}))));}
 function loadSceneLayers(){const sc=getActiveScene(); if(!sc||!sc.layers||sc.layers.length===0){layers=[]; buildAll(); return;} layers=[]; sc.layers.forEach(l=>{if(l.type==='image'&&l.data.url){const img=new Image(); img.crossOrigin='anonymous'; img.src=l.data.url; img.onload=()=>{layers.push({id:Date.now()+Math.random(),type:l.type,x:l.x,y:l.y,w:l.w,h:l.h,order:l.order,data:{img,opacity:l.data.opacity||100,blur:l.data.blur||0},scrollX:0}); buildAll();};} else {layers.push({id:Date.now()+Math.random(),type:l.type,x:l.x,y:l.y,w:l.w,h:l.h,order:l.order,data:l.data,scrollX:0});}}); buildAll();}
@@ -8,10 +9,75 @@ function renderScenes(){document.getElementById('sceneList').innerHTML=scenes.ma
 function addScene(){const n=prompt('Scene name?'); if(!n)return; saveSceneLayers(); const id=Date.now(); scenes.push({id,name:n,layers:[]}); activeSceneId=id; layers=[]; renderScenes(); buildAll();}
 function switchScene(id){if(id===activeSceneId)return; saveSceneLayers(); activeSceneId=id; selectedId=null; renderScenes(); loadSceneLayers();}
 renderScenes();
-async function initDevices(){try{await navigator.mediaDevices.getUserMedia({video:true,audio:true}).then(s=>s.getTracks().forEach(t=>t.stop()))}catch(e){} const all=await navigator.mediaDevices.enumerateDevices(); const cams=all.filter(d=>d.kind==='videoinput'), mics=all.filter(d=>d.kind==='audioinput'); const sorted=[...cams].sort((a,b)=>{const ad=a.label.toLowerCase().includes('droid'), bd=b.label.toLowerCase().includes('droid'); if(ad&&!bd) return 1; if(!ad&&bd) return -1; return 0;}); document.getElementById('cameraSelect').innerHTML=sorted.map(d=>`<option value="${d.deviceId}">${d.label}</option>`).join(''); document.getElementById('micSelect').innerHTML=mics.map(d=>`<option value="${d.deviceId}">${d.label}</option>`).join(''); if(!selectedCamera){const pc=sorted.find(c=>!c.label.toLowerCase().includes('droid'))||sorted[0]; if(pc) selectedCamera=pc.deviceId;} if(!selectedMic&&mics[0]) selectedMic=mics[0].deviceId; return sorted;}
+
+// ===== FIXED DEVICE LOGIC - PC CAM FIRST, NEVER DROIDCAM DEFAULT =====
+const isDroidCam = (d) => {
+  const label = (d.label || '').toLowerCase();
+  return label.includes('droid') || label.includes('droidcam') || label.includes('virtual');
+};
+
+async function initDevices(){
+  try{
+    const tmp = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+    tmp.getTracks().forEach(t=>t.stop());
+  }catch(e){ console.warn("Need camera permission:", e); }
+
+  const all = await navigator.mediaDevices.enumerateDevices();
+  const cams = all.filter(d=>d.kind==='videoinput');
+  const mics = all.filter(d=>d.kind==='audioinput');
+
+  const sorted = [...cams].sort((a,b)=>{
+    const ad=isDroidCam(a), bd=isDroidCam(b);
+    if(ad &&!bd) return 1;
+    if(!ad && bd) return -1;
+    return 0;
+  });
+
+  const camSel = document.getElementById('cameraSelect');
+  const micSel = document.getElementById('micSelect');
+  camSel.innerHTML = sorted.map((d,i)=>`<option value="${d.deviceId}">${d.label || 'Camera '+(i+1)}${isDroidCam(d)?' (DroidCam)':''}</option>`).join('');
+  micSel.innerHTML = mics.map(d=>`<option value="${d.deviceId}">${d.label || 'Mic'}</option>`).join('');
+
+  if(!selectedCamera){
+    const pcCam = sorted.find(c=>!isDroidCam(c)) || sorted[0];
+    if(pcCam){ selectedCamera = pcCam.deviceId; }
+  }
+  if(selectedCamera) camSel.value = selectedCamera;
+  if(!selectedMic && mics[0]) selectedMic = mics[0].deviceId;
+  if(selectedMic) micSel.value = selectedMic;
+
+  camSel.onchange = ()=>{ selectedCamera = camSel.value; previewSource('camera'); };
+  micSel.onchange = ()=>{ selectedMic = micSel.value; previewSource('camera'); };
+
+  console.log("NOVEX Cams found:", sorted.map(c=>c.label));
+  return sorted;
+}
 initDevices();
-function forcePCcam(){initDevices().then(s=>{const pc=s.find(c=>!c.label.toLowerCase().includes('droid')); if(pc){selectedCamera=pc.deviceId; previewSource('camera'); closeSettings();}});}
-function openSettings(){document.getElementById('settingsOverlay').classList.add('active');}function closeSettings(){selectedCamera=document.getElementById('cameraSelect').value; selectedMic=document.getElementById('micSelect').value; document.getElementById('settingsOverlay').classList.remove('active'); previewSource('camera');}
+
+async function forcePCcam(){
+  const cams = await initDevices();
+  const pc = cams.find(c=>!isDroidCam(c));
+  if(pc){
+    selectedCamera = pc.deviceId;
+    document.getElementById('cameraSelect').value = pc.deviceId;
+    await previewSource('camera');
+    closeSettings();
+    document.getElementById('bgStatus').textContent = 'BG: PC Cam - '+pc.label;
+  } else {
+    alert("No PC cam found! 1. Enable Integrated Camera in Device Manager 2. Disable DroidCam");
+  }
+}
+// ===== END FIX =====
+
+function openSettings(){document.getElementById('settingsOverlay').classList.add('active'); initDevices();}
+function closeSettings(){
+  const camVal = document.getElementById('cameraSelect').value;
+  const micVal = document.getElementById('micSelect').value;
+  if(camVal) selectedCamera = camVal;
+  if(micVal) selectedMic = micVal;
+  document.getElementById('settingsOverlay').classList.remove('active');
+  previewSource('camera');
+}
 function openTextModal(){document.getElementById('textOverlay').classList.add('active');}function closeTextModal(){document.getElementById('textOverlay').classList.remove('active');}
 function openLowerThird(){document.getElementById('lowerOverlay').classList.add('active');}function closeLowerThird(){document.getElementById('lowerOverlay').classList.remove('active');}
 function openGoLiveModal(){document.getElementById('goLiveOverlay').classList.add('active');}function closeGoLiveModal(){document.getElementById('goLiveOverlay').classList.remove('active');}
@@ -34,11 +100,33 @@ function updateStyle(){const s=layers.find(l=>l.id===selectedId); if(!s)return; 
 function applyText(){const t=document.getElementById('textInput').value; if(!t)return; createLayer('text',{text:t,size:document.getElementById('fontSize').value,color:document.getElementById('textColor').value,scroll:document.getElementById('scrollCheck').checked,speed:document.getElementById('scrollSpeed').value}); document.getElementById('textInput').value=''; closeTextModal();}
 function applyLowerThird(){createLayer('lowerThird',{name:document.getElementById('ltName').value||'NOVEX',title:document.getElementById('ltTitle').value||'LIVE',c1:document.getElementById('ltColor1').value,c2:document.getElementById('ltColor2').value,style:document.getElementById('ltStyle').value}); closeLowerThird();}
 logoInput.onchange=e=>{const r=new FileReader(); r.onload=ev=>{const img=new Image(); img.src=ev.target.result; img.onload=()=>createLayer('image',{img});}; r.readAsDataURL(e.target.files[0]);};
-async function previewSource(t){if(previewStream)previewStream.getTracks().forEach(x=>x.stop()); let s=null; if(t==='camera'){s=await navigator.mediaDevices.getUserMedia({video:selectedCamera?{deviceId:selectedCamera}:true,audio:selectedMic?{deviceId:selectedMic}:true}); previewStream=s; camVideo.srcObject=s; await camVideo.play(); if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});} if(t==='screen'){s=await navigator.mediaDevices.getDisplayMedia({video:true}); camVideo.srcObject=s; await camVideo.play(); if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});}}
+
+async function previewSource(t){
+  if(previewStream) previewStream.getTracks().forEach(x=>x.stop());
+  let s=null;
+  if(t==='camera'){
+    try{
+      const videoConstraint = selectedCamera? {deviceId:{exact:selectedCamera}} : true;
+      const audioConstraint = selectedMic? {deviceId:{exact:selectedMic}} : true;
+      s = await navigator.mediaDevices.getUserMedia({video:videoConstraint,audio:audioConstraint});
+      previewStream=s; camVideo.srcObject=s; await camVideo.play();
+      if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});
+    }catch(err){
+      console.error(err);
+      alert("Cam busy/error: "+err.message+" - Trying fallback");
+      s = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+      previewStream=s; camVideo.srcObject=s; await camVideo.play();
+      if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});
+    }
+  }
+  if(t==='screen'){s=await navigator.mediaDevices.getDisplayMedia({video:true}); camVideo.srcObject=s; await camVideo.play(); if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});}
+}
+
 function setRes(w,h,b){saveSceneLayers(); resW=w; resH=h; previewCanvas.width=w; previewCanvas.height=h; liveCanvas.width=w; liveCanvas.height=h; document.querySelectorAll('.res-group.btn-small').forEach(x=>x.classList.remove('active')); if(b) b.classList.add('active');}
-function render(){drawBackground(); const sorted=[...layers].sort((a,b)=>a.order-b.order); sorted.forEach(l=>{const x=(l.x/100)*resW,y=(l.y/100)*resH,w=(l.w/100)*resW,h=(l.h/100)*resH; previewCtx.save(); previewCtx.globalAlpha=(l.data.opacity||100)/100; if(l.data.blur) previewCtx.filter=`blur(${l.data.blur}px)`; if(l.type==='camera'&&camVideo.readyState>=2)previewCtx.drawImage(camVideo,x,y,w,h); if(l.type==='image'&&l.data.img)previewCtx.drawImage(l.data.img,x,y,w,h); if(l.type==='text'){previewCtx.fillStyle=l.data.color; previewCtx.font=`bold ${l.data.size}px Inter`; if(l.data.scroll){l.scrollX=(l.scrollX||resW)-l.data.speed; if(l.scrollX<-previewCtx.measureText(l.data.text).width) l.scrollX=resW; previewCtx.fillText(l.data.text,l.scrollX,y+h/2);}else previewCtx.fillText(l.data.text,x+w/2,y+h/1.5);} if(l.type==='lowerThird'){const g=previewCtx.createLinearGradient(x,y,x+w,y); g.addColorStop(0,l.data.c1); g.addColorStop(1,l.data.c2); previewCtx.fillStyle=g; previewCtx.fillRect(x,y,w,h); previewCtx.fillStyle='white'; previewCtx.font=`900 ${h*0.4}px Inter`; previewCtx.fillText(l.data.name,x+10,y+h*0.5);} previewCtx.restore();}); if(liveCanvas.dataset.live==='true'){liveCtx.clearRect(0,0,resW,resH); liveCtx.drawImage(previewCanvas,0,0);} requestAnimationFrame(render);}render();
-function goLive(){liveCanvas.dataset.live='true';}function toggleRecord(){if(isRecording){mediaRecorder.stop(); isRecording=false; recBtn.textContent='● REC'; bottomRecBtn.textContent='● REC'; recTime.style.display='none'; return;} const stream=previewCanvas.captureStream(30); if(previewStream) previewStream.getAudioTracks().forEach(t=>stream.addTrack(t)); mediaRecorder=new MediaRecorder(stream); mediaRecorder.ondataavailable=e=>recordedChunks.push(e.data); mediaRecorder.onstop=()=>{const b=new Blob(recordedChunks,{type:'video/webm'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=`NOVEX-${Date.now()}.webm`; a.click();}; recordedChunks=[]; mediaRecorder.start(); isRecording=true; recBtn.textContent='■ Stop'; bottomRecBtn.textContent='■ Stop'; recTime.style.display='inline';}
+function render(){drawBackground(); const sorted=[...layers].sort((a,b)=>a.order-b.order); sorted.forEach(l=>{const x=(l.x/100)*resW,y=(l.y/100)*resH,w=(l.w/100)*resW,h=(l.h/100)*resH; previewCtx.save(); previewCtx.globalAlpha=(l.data.opacity||100)/100; if(l.data.blur) previewCtx.filter=`blur(${l.data.blur}px)`; if(l.type==='camera'&&camVideo.readyState>=2)previewCtx.drawImage(camVideo,x,y,w,h); if(l.type==='image'&&l.data.img)previewCtx.drawImage(l.data.img,x,y,w,h); if(l.type==='text'){previewCtx.fillStyle=l.data.color; previewCtx.font=`bold ${l.data.size}px Inter`; if(l.data.scroll){l.scrollX=(l.scrollX||resW)-l.data.speed; if(l.scrollX<-previewCtx.measureText(l.data.text).width) l.scrollX=resW; previewCtx.fillText(l.data.text,l.scrollX,y+h/2);}else previewCtx.fillText(l.data.text,x,y);} if(l.type==='lowerThird'){const g=previewCtx.createLinearGradient(x,y,x+w,y); g.addColorStop(0,l.data.c1); g.addColorStop(1,l.data.c2); previewCtx.fillStyle=g; previewCtx.fillRect(x,y,w,h); previewCtx.fillStyle='white'; previewCtx.font=`900 ${h*0.4}px Inter`; previewCtx.fillText(l.data.name,x+10,y+h*0.5);} previewCtx.restore();}); if(liveCanvas.dataset.live==='true'){liveCtx.clearRect(0,0,resW,resH); liveCtx.drawImage(previewCanvas,0,0);} requestAnimationFrame(render);}render();
+function goLive(){liveCanvas.dataset.live='true';}
+function toggleRecord(){const recBtn=document.getElementById('recBtn'), bottomRecBtn=document.getElementById('bottomRecBtn'), recTime=document.getElementById('recTime'); if(isRecording){mediaRecorder.stop(); isRecording=false; recBtn.textContent='● REC'; bottomRecBtn.textContent='● REC'; recTime.style.display='none'; return;} const stream=previewCanvas.captureStream(30); if(previewStream) previewStream.getAudioTracks().forEach(t=>stream.addTrack(t)); mediaRecorder=new MediaRecorder(stream); mediaRecorder.ondataavailable=e=>recordedChunks.push(e.data); mediaRecorder.onstop=()=>{const b=new Blob(recordedChunks,{type:'video/webm'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=`NOVEX-${Date.now()}.webm`; a.click();}; recordedChunks=[]; mediaRecorder.start(); isRecording=true; recBtn.textContent='■ Stop'; bottomRecBtn.textContent='■ Stop'; recTime.style.display='inline';}
 function saveLayout(){saveSceneLayers(); localStorage.setItem('novex',JSON.stringify({scenes,bg})); alert('Saved NOVEX');}
-async function startRealWHIP(){const url=whipUrl.value.trim(), token=whipToken.value.trim(); if(!url)return alert('Paste WHIP URL'); try{const cs=previewCanvas.captureStream(30); if(previewStream) previewStream.getAudioTracks().forEach(t=>cs.addTrack(t)); whipPC=new RTCPeerConnection(); cs.getTracks().forEach(t=>whipPC.addTrack(t,cs)); const off=await whipPC.createOffer(); await whipPC.setLocalDescription(off); const h={'Content-Type':'application/sdp'}; if(token)h['Authorization']='Bearer '+token; const r=await fetch(url,{method:'POST',headers:h,body:off.sdp}); const ans=await r.text(); await whipPC.setRemoteDescription({type:'answer',sdp:ans}); liveCanvas.dataset.live='true'; liveBadge.textContent='● LIVE FB/YT/TIKTOK'; recTime.style.display='inline'; recTime.textContent='● LIVE NOVEX'; closeGoLiveModal();}catch(e){alert(e.message);}}
-function stopWHIP(){if(whipPC)whipPC.close(); liveBadge.textContent='● OFF';}
+async function startRealWHIP(){const url=document.getElementById('whipUrl').value.trim(), token=document.getElementById('whipToken').value.trim(); if(!url)return alert('Paste WHIP URL'); try{const cs=previewCanvas.captureStream(30); if(previewStream) previewStream.getAudioTracks().forEach(t=>cs.addTrack(t)); whipPC=new RTCPeerConnection(); cs.getTracks().forEach(t=>whipPC.addTrack(t,cs)); const off=await whipPC.createOffer(); await whipPC.setLocalDescription(off); const h={'Content-Type':'application/sdp'}; if(token)h['Authorization']='Bearer '+token; const r=await fetch(url,{method:'POST',headers:h,body:off.sdp}); const ans=await r.text(); await whipPC.setRemoteDescription({type:'answer',sdp:ans}); liveCanvas.dataset.live='true'; document.getElementById('liveBadge').textContent='● LIVE FB/YT/TIKTOK'; document.getElementById('recTime').style.display='inline'; document.getElementById('recTime').textContent='● LIVE NOVEX'; closeGoLiveModal();}catch(e){alert(e.message);}}
+function stopWHIP(){if(whipPC)whipPC.close(); document.getElementById('liveBadge').textContent='● OFF';}
 setTimeout(()=>previewSource('camera'),800);
