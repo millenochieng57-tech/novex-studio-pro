@@ -1,44 +1,3062 @@
-let previewStream=null,selectedCamera=null,selectedMic=null,scenes=[{id:1,name:'Main',layers:[]}],activeSceneId=1,layers=[],selectedId=null,dragState=null,resW=1280,resH=720,mediaRecorder=null,recordedChunks=[],isRecording=false,whipPC=null,bg={type:'black',value:'#000',blur:18},bgImg=null;
-const bgVideoEl=document.getElementById('bgVideo'),bgAudioEl=document.getElementById('bgAudio'),previewCanvas=document.getElementById('previewCanvas'),previewCtx=previewCanvas.getContext('2d'),liveCanvas=document.getElementById('liveCanvas'),liveCtx=liveCanvas.getContext('2d'),camVideo=document.getElementById('camVideo'),layersContainer=document.getElementById('layersContainer');
-const bgColor=document.getElementById('bgColor'),bgImageInput=document.getElementById('bgImageInput'),bgVideoInput=document.getElementById('bgVideoInput'),bgAudioInput=document.getElementById('bgAudioInput'),logoInput=document.getElementById('logoInput');
-function getActiveScene(){return scenes.find(s=>s.id===activeSceneId);}
-function saveSceneLayers(){const sc=getActiveScene(); if(sc) sc.layers=JSON.parse(JSON.stringify(layers.map(l=>({type:l.type,x:l.x,y:l.y,w:l.w,h:l.h,order:l.order,data:l.type==='image'?{url:l.data.img?.src,opacity:l.data.opacity,blur:l.data.blur}:l.data}))));}
-function loadSceneLayers(){const sc=getActiveScene(); if(!sc||!sc.layers||sc.layers.length===0){layers=[]; buildAll(); return;} layers=[]; sc.layers.forEach(l=>{if(l.type==='image'&&l.data.url){const img=new Image(); img.crossOrigin='anonymous'; img.src=l.data.url; img.onload=()=>{layers.push({id:Date.now()+Math.random(),type:l.type,x:l.x,y:l.y,w:l.w,h:l.h,order:l.order,data:{img,opacity:l.data.opacity||100,blur:l.data.blur||0},scrollX:0}); buildAll();};} else {layers.push({id:Date.now()+Math.random(),type:l.type,x:l.x,y:l.y,w:l.w,h:l.h,order:l.order,data:l.data,scrollX:0});}}); buildAll();}
-function renderScenes(){document.getElementById('sceneList').innerHTML=scenes.map(s=>`<div class="scene-item ${s.id===activeSceneId?'active':''}" onclick="switchScene(${s.id})"><span>🎬 ${s.name}</span></div>`).join('');}
-function addScene(){const n=prompt('Scene name?'); if(!n)return; saveSceneLayers(); const id=Date.now(); scenes.push({id,name:n,layers:[]}); activeSceneId=id; layers=[]; renderScenes(); buildAll();}
-function switchScene(id){if(id===activeSceneId)return; saveSceneLayers(); activeSceneId=id; selectedId=null; renderScenes(); loadSceneLayers();}
+/* =========================================================
+   NOVEX STUDIO PRO
+   Broadcast Studio Engine
+   ========================================================= */
+
+let previewStream = null;
+let selectedCamera = null;
+let selectedMic = null;
+
+let scenes = [
+  {
+    id: 1,
+    name: "Main",
+    layers: []
+  }
+];
+
+let activeSceneId = 1;
+let layers = [];
+let selectedId = null;
+let dragState = null;
+
+let resW = 1280;
+let resH = 720;
+
+let mediaRecorder = null;
+let recordedChunks = [];
+let isRecording = false;
+let recordingStart = 0;
+let recordingTimer = null;
+
+let whipPC = null;
+
+let bg = {
+  type: "black",
+  value: "#000",
+  blur: 18
+};
+
+let bgImg = null;
+let currentSource = "camera";
+
+let audioContext = null;
+let micAnalyser = null;
+let micAnimation = null;
+
+
+/* =========================================================
+   ELEMENTS
+   ========================================================= */
+
+const bgVideoEl = document.getElementById("bgVideo");
+const bgAudioEl = document.getElementById("bgAudio");
+
+const previewCanvas = document.getElementById("previewCanvas");
+const previewCtx = previewCanvas.getContext("2d");
+
+const liveCanvas = document.getElementById("liveCanvas");
+const liveCtx = liveCanvas.getContext("2d");
+
+const camVideo = document.getElementById("camVideo");
+
+const layersContainer =
+  document.getElementById("layersContainer");
+
+const bgColor =
+  document.getElementById("bgColor");
+
+const bgImageInput =
+  document.getElementById("bgImageInput");
+
+const bgVideoInput =
+  document.getElementById("bgVideoInput");
+
+const bgAudioInput =
+  document.getElementById("bgAudioInput");
+
+const logoInput =
+  document.getElementById("logoInput");
+
+const recBtn =
+  document.getElementById("recBtn");
+
+const bottomRecBtn =
+  document.getElementById("bottomRecBtn");
+
+const recTime =
+  document.getElementById("recTime");
+
+const liveBadge =
+  document.getElementById("liveBadge");
+
+const micMeter =
+  document.getElementById("micMeter");
+
+const micDb =
+  document.getElementById("micDb");
+
+
+/* =========================================================
+   SCENES
+   ========================================================= */
+
+function getActiveScene() {
+  return scenes.find(
+    scene => scene.id === activeSceneId
+  );
+}
+
+
+function serializeLayer(layer) {
+
+  const data = { ...layer.data };
+
+  if (layer.type === "image") {
+    data.url =
+      layer.data.img
+        ? layer.data.img.src
+        : layer.data.url || "";
+    
+    delete data.img;
+  }
+
+  return {
+    type: layer.type,
+    x: layer.x,
+    y: layer.y,
+    w: layer.w,
+    h: layer.h,
+    order: layer.order,
+    data
+  };
+}
+
+
+function saveSceneLayers() {
+
+  const scene = getActiveScene();
+
+  if (!scene) return;
+
+  scene.layers =
+    layers.map(serializeLayer);
+}
+
+
+function loadSceneLayers() {
+
+  const scene = getActiveScene();
+
+  layers = [];
+
+  if (!scene || !scene.layers) {
+    buildAll();
+    return;
+  }
+
+  scene.layers.forEach(saved => {
+
+    if (
+      saved.type === "image" &&
+      saved.data &&
+      saved.data.url
+    ) {
+
+      const img = new Image();
+
+      img.src = saved.data.url;
+
+      img.onload = () => {
+
+        layers.push({
+          id: Date.now() + Math.random(),
+          type: saved.type,
+          x: saved.x,
+          y: saved.y,
+          w: saved.w,
+          h: saved.h,
+          order: saved.order,
+          data: {
+            ...saved.data,
+            img
+          },
+          scrollX: 0
+        });
+
+        buildAll();
+      };
+
+    } else {
+
+      layers.push({
+        id: Date.now() + Math.random(),
+        type: saved.type,
+        x: saved.x,
+        y: saved.y,
+        w: saved.w,
+        h: saved.h,
+        order: saved.order,
+        data: saved.data || {},
+        scrollX: 0
+      });
+
+    }
+
+  });
+
+  buildAll();
+}
+
+
+function renderScenes() {
+
+  const list =
+    document.getElementById("sceneList");
+
+  list.innerHTML =
+    scenes.map(scene => {
+
+      return `
+        <div
+          class="scene-item ${
+            scene.id === activeSceneId
+              ? "active"
+              : ""
+          }"
+          onclick="switchScene(${scene.id})"
+        >
+          <span>🎬 ${escapeHTML(scene.name)}</span>
+        </div>
+      `;
+
+    }).join("");
+}
+
+
+function addScene() {
+
+  const name =
+    prompt("Scene name?");
+
+  if (!name || !name.trim()) return;
+
+  saveSceneLayers();
+
+  const id =
+    Date.now();
+
+  scenes.push({
+    id,
+    name: name.trim(),
+    layers: []
+  });
+
+  activeSceneId = id;
+  layers = [];
+  selectedId = null;
+
+  renderScenes();
+  buildAll();
+  saveLayout(false);
+}
+
+
+function switchScene(id) {
+
+  if (id === activeSceneId) return;
+
+  saveSceneLayers();
+
+  activeSceneId = id;
+  selectedId = null;
+
+  renderScenes();
+  loadSceneLayers();
+}
+
+
+/* =========================================================
+   DEVICE MANAGEMENT
+   ========================================================= */
+
+async function initDevices() {
+
+  try {
+
+    const permissionStream =
+      await navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      });
+
+    permissionStream
+      .getTracks()
+      .forEach(track => track.stop());
+
+  } catch (error) {
+
+    console.warn(
+      "Device permission:",
+      error.message
+    );
+
+  }
+
+  const devices =
+    await navigator.mediaDevices.enumerateDevices();
+
+  const cameras =
+    devices.filter(
+      device => device.kind === "videoinput"
+    );
+
+  const microphones =
+    devices.filter(
+      device => device.kind === "audioinput"
+    );
+
+  cameras.sort((a, b) => {
+
+    const aPhone =
+      a.label.toLowerCase().includes("droid");
+
+    const bPhone =
+      b.label.toLowerCase().includes("droid");
+
+    if (aPhone && !bPhone) return 1;
+    if (!aPhone && bPhone) return -1;
+
+    return 0;
+  });
+
+  const cameraSelect =
+    document.getElementById("cameraSelect");
+
+  const micSelect =
+    document.getElementById("micSelect");
+
+  cameraSelect.innerHTML =
+    cameras.map(camera => `
+      <option value="${camera.deviceId}">
+        ${escapeHTML(
+          camera.label ||
+          "Camera " + camera.deviceId.slice(0, 5)
+        )}
+      </option>
+    `).join("");
+
+  micSelect.innerHTML =
+    microphones.map(mic => `
+      <option value="${mic.deviceId}">
+        ${escapeHTML(
+          mic.label ||
+          "Microphone " + mic.deviceId.slice(0, 5)
+        )}
+      </option>
+    `).join("");
+
+  if (!selectedCamera && cameras.length) {
+
+    const preferred =
+      cameras.find(camera =>
+        !camera.label
+          .toLowerCase()
+          .includes("droid")
+      );
+
+    selectedCamera =
+      preferred
+        ? preferred.deviceId
+        : cameras[0].deviceId;
+  }
+
+  if (!selectedMic && microphones.length) {
+    selectedMic =
+      microphones[0].deviceId;
+  }
+
+  if (selectedCamera) {
+    cameraSelect.value = selectedCamera;
+  }
+
+  if (selectedMic) {
+    micSelect.value = selectedMic;
+  }
+
+  return cameras;
+}
+
+
+async function forcePCcam() {
+
+  const cameras =
+    await initDevices();
+
+  const pc =
+    cameras.find(camera =>
+      !camera.label
+        .toLowerCase()
+        .includes("droid")
+    );
+
+  if (!pc) {
+
+    alert(
+      "No PC camera was found."
+    );
+
+    return;
+  }
+
+  selectedCamera =
+    pc.deviceId;
+
+  await previewSource("camera");
+
+  closeSettings();
+}
+
+
+function openSettings() {
+
+  initDevices();
+
+  document
+    .getElementById("settingsOverlay")
+    .classList.add("active");
+}
+
+
+function closeSettings() {
+
+  const cameraSelect =
+    document.getElementById("cameraSelect");
+
+  const micSelect =
+    document.getElementById("micSelect");
+
+  if (cameraSelect.value) {
+    selectedCamera =
+      cameraSelect.value;
+  }
+
+  if (micSelect.value) {
+    selectedMic =
+      micSelect.value;
+  }
+
+  document
+    .getElementById("settingsOverlay")
+    .classList.remove("active");
+
+  if (currentSource === "camera") {
+    previewSource("camera");
+  }
+}
+
+
+/* =========================================================
+   MODALS
+   ========================================================= */
+
+function openTextModal() {
+
+  document
+    .getElementById("textOverlay")
+    .classList.add("active");
+}
+
+
+function closeTextModal() {
+
+  document
+    .getElementById("textOverlay")
+    .classList.remove("active");
+}
+
+
+function openLowerThird() {
+
+  document
+    .getElementById("lowerOverlay")
+    .classList.add("active");
+}
+
+
+function closeLowerThird() {
+
+  document
+    .getElementById("lowerOverlay")
+    .classList.remove("active");
+}
+
+
+function openGoLiveModal() {
+
+  document
+    .getElementById("goLiveOverlay")
+    .classList.add("active");
+}
+
+
+function closeGoLiveModal() {
+
+  document
+    .getElementById("goLiveOverlay")
+    .classList.remove("active");
+}
+
+
+/* =========================================================
+   BACKGROUND
+   ========================================================= */
+
+function setBg(type, value) {
+
+  bg.type = type;
+
+  if (type === "color") {
+    bg.value = value;
+  }
+
+  if (type === "gradient") {
+    bg.value = "gradient";
+  }
+
+  if (type === "blur") {
+    bg.blur =
+      parseInt(value) || 18;
+  }
+
+  updateBgStatus();
+
+  saveLayout(false);
+}
+
+
+function updateBgStatus() {
+
+  const status =
+    document.getElementById("bgStatus");
+
+  if (!status) return;
+
+  let label =
+    "BG: " + bg.type;
+
+  if (bg.type === "image") {
+    label = "BG: Image";
+  }
+
+  if (bg.type === "video") {
+    label = "BG: Video";
+  }
+
+  if (bg.type === "gradient") {
+    label = "BG: Gradient";
+  }
+
+  status.textContent = label;
+}
+
+
+function loadPresetBg(url) {
+
+  const img =
+    new Image();
+
+  img.crossOrigin =
+    "anonymous";
+
+  img.src = url;
+
+  img.onload = () => {
+
+    bgImg = img;
+    bg.type = "image";
+
+    updateBgStatus();
+    saveLayout(false);
+  };
+
+  img.onerror = () => {
+
+    alert(
+      "Unable to load this background image."
+    );
+  };
+}
+
+
+bgImageInput.onchange = event => {
+
+  const file =
+    event.target.files[0];
+
+  if (!file) return;
+
+  const reader =
+    new FileReader();
+
+  reader.onload = e => {
+
+    const img =
+      new Image();
+
+    img.src =
+      e.target.result;
+
+    img.onload = () => {
+
+      bgImg = img;
+      bg.type = "image";
+
+      updateBgStatus();
+      saveLayout(false);
+    };
+
+  };
+
+  reader.readAsDataURL(file);
+};
+
+
+bgVideoInput.onchange = event => {
+
+  const file =
+    event.target.files[0];
+
+  if (!file) return;
+
+  bgVideoEl.src =
+    URL.createObjectURL(file);
+
+  bgVideoEl.play();
+
+  bg.type = "video";
+
+  updateBgStatus();
+};
+
+
+bgAudioInput.onchange = event => {
+
+  const file =
+    event.target.files[0];
+
+  if (!file) return;
+
+  bgAudioEl.src =
+    URL.createObjectURL(file);
+
+  bgAudioEl.volume =
+    document.getElementById(
+      "bgMusicVol"
+    ).value / 100;
+
+  bgAudioEl.play();
+};
+
+
+function setBgMusicVol(value) {
+
+  bgAudioEl.volume =
+    value / 100;
+}
+
+
+function stopBgAudio() {
+
+  bgAudioEl.pause();
+  bgAudioEl.currentTime = 0;
+}
+
+
+function drawBackground(ctx) {
+
+  if (bg.type === "color") {
+
+    ctx.fillStyle =
+      bg.value;
+
+    ctx.fillRect(
+      0,
+      0,
+      resW,
+      resH
+    );
+
+    return;
+  }
+
+
+  if (bg.type === "gradient") {
+
+    const gradient =
+      ctx.createLinearGradient(
+        0,
+        0,
+        resW,
+        resH
+      );
+
+    gradient.addColorStop(
+      0,
+      "#7c5cff"
+    );
+
+    gradient.addColorStop(
+      1,
+      "#22c55e"
+    );
+
+    ctx.fillStyle =
+      gradient;
+
+    ctx.fillRect(
+      0,
+      0,
+      resW,
+      resH
+    );
+
+    return;
+  }
+
+
+  if (
+    bg.type === "image" &&
+    bgImg &&
+    bgImg.complete
+  ) {
+
+    drawCover(
+      ctx,
+      bgImg,
+      0,
+      0,
+      resW,
+      resH
+    );
+
+    return;
+  }
+
+
+  if (
+    bg.type === "video" &&
+    bgVideoEl.readyState >= 2
+  ) {
+
+    drawCover(
+      ctx,
+      bgVideoEl,
+      0,
+      0,
+      resW,
+      resH
+    );
+
+    return;
+  }
+
+
+  if (
+    bg.type === "blur" &&
+    camVideo.readyState >= 2
+  ) {
+
+    ctx.save();
+
+    ctx.filter =
+      `blur(${bg.blur}px)`;
+
+    ctx.drawImage(
+      camVideo,
+      0,
+      0,
+      resW,
+      resH
+    );
+
+    ctx.restore();
+
+    return;
+  }
+
+
+  ctx.fillStyle =
+    "#000";
+
+  ctx.fillRect(
+    0,
+    0,
+    resW,
+    resH
+  );
+}
+
+
+function drawCover(
+  ctx,
+  source,
+  x,
+  y,
+  width,
+  height
+) {
+
+  const sw =
+    source.videoWidth ||
+    source.naturalWidth ||
+    width;
+
+  const sh =
+    source.videoHeight ||
+    source.naturalHeight ||
+    height;
+
+  if (!sw || !sh) {
+
+    ctx.drawImage(
+      source,
+      x,
+      y,
+      width,
+      height
+    );
+
+    return;
+  }
+
+  const scale =
+    Math.max(
+      width / sw,
+      height / sh
+    );
+
+  const dw =
+    sw * scale;
+
+  const dh =
+    sh * scale;
+
+  const dx =
+    x + (width - dw) / 2;
+
+  const dy =
+    y + (height - dh) / 2;
+
+  ctx.drawImage(
+    source,
+    dx,
+    dy,
+    dw,
+    dh
+  );
+}
+
+
+/* =========================================================
+   LAYERS
+   ========================================================= */
+
+function createLayer(type, data = {}) {
+
+  const id =
+    Date.now() + Math.random();
+
+  let layer = {
+    id,
+    type,
+    x: 5,
+    y: 5,
+    w: 40,
+    h: 35,
+    data: {
+      ...data,
+      opacity: 100,
+      blur: 0
+    },
+    scrollX: 0,
+    order: layers.length
+  };
+
+
+  if (type === "camera") {
+
+    layer.x = 0;
+    layer.y = 0;
+    layer.w = 100;
+    layer.h = 100;
+  }
+
+
+  if (type === "image") {
+
+    layer.x = 60;
+    layer.y = 10;
+    layer.w = 35;
+    layer.h = 35;
+  }
+
+
+  if (type === "text") {
+
+    layer.x = 5;
+    layer.y = 70;
+    layer.w = 50;
+    layer.h = 15;
+
+    if (data.scroll) {
+
+      layer.x = 0;
+      layer.y = 85;
+      layer.w = 100;
+    }
+  }
+
+
+  if (type === "lowerThird") {
+
+    layer.x = 2;
+    layer.y = 76;
+    layer.w = 55;
+    layer.h = 18;
+  }
+
+
+  layers.push(layer);
+
+  selectedId = id;
+
+  buildAll();
+  saveSceneLayers();
+}
+
+
+/* =========================================================
+   LAYER UI
+   ========================================================= */
+
+function buildAll() {
+
+  layersContainer.innerHTML = "";
+
+  const sorted =
+    [...layers].sort(
+      (a, b) => a.order - b.order
+    );
+
+
+  sorted.forEach(layer => {
+
+    const div =
+      document.createElement("div");
+
+    div.className =
+      "layer" +
+      (layer.id === selectedId
+        ? " selected"
+        : "");
+
+    div.style.left =
+      layer.x + "%";
+
+    div.style.top =
+      layer.y + "%";
+
+    div.style.width =
+      layer.w + "%";
+
+    div.style.height =
+      layer.h + "%";
+
+
+    div.innerHTML = `
+      <div class="handle tl"></div>
+      <div class="handle tr"></div>
+      <div class="handle bl"></div>
+      <div class="handle br"></div>
+      <div class="handle ml"></div>
+      <div class="handle mr"></div>
+    `;
+
+
+    div.onmousedown =
+      event => {
+
+        if (
+          event.target.classList
+            .contains("handle")
+        ) {
+          return;
+        }
+
+        startDrag(
+          event,
+          layer,
+          "move"
+        );
+      };
+
+
+    div.querySelectorAll(
+      ".handle"
+    ).forEach(handle => {
+
+      handle.onmousedown =
+        event => {
+
+          event.stopPropagation();
+
+          const mode =
+            [...handle.classList]
+              .find(
+                c =>
+                  [
+                    "tl",
+                    "tr",
+                    "bl",
+                    "br",
+                    "ml",
+                    "mr"
+                  ].includes(c)
+              );
+
+          startDrag(
+            event,
+            layer,
+            "resize-" + mode
+          );
+        };
+
+    });
+
+
+    div.onclick =
+      event => {
+
+        event.stopPropagation();
+
+        selectedId =
+          layer.id;
+
+        updateStyleControls();
+        buildAll();
+      };
+
+
+    layersContainer.appendChild(div);
+
+  });
+
+
+  const layerList =
+    document.getElementById(
+      "layerList"
+    );
+
+
+  layerList.innerHTML =
+    sorted.map(layer => {
+
+      return `
+        <div
+          class="layer-item ${
+            layer.id === selectedId
+              ? "selected"
+              : ""
+          }"
+          onclick="selectLayer(${layer.id})"
+        >
+          <span>
+            ${layerIcon(layer.type)}
+            ${escapeHTML(layer.type)}
+            ${Math.round(layer.w)}%
+          </span>
+
+          <button
+            onclick="event.stopPropagation();deleteLayer('${layer.id}')"
+            style="
+              background:transparent;
+              border:none;
+              color:#ff2d55;
+              cursor:pointer;
+            "
+          >
+            🗑️
+          </button>
+        </div>
+      `;
+
+    }).join("");
+
+
+  updateSelectedInfo();
+}
+
+
+function selectLayer(id) {
+
+  selectedId = id;
+
+  updateStyleControls();
+
+  buildAll();
+}
+
+
+function layerIcon(type) {
+
+  const icons = {
+    camera: "📷",
+    image: "🖼️",
+    text: "📝",
+    lowerThird: "🔻"
+  };
+
+  return icons[type] || "◼️";
+}
+
+
+function updateSelectedInfo() {
+
+  const info =
+    document.getElementById(
+      "selectedInfo"
+    );
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) {
+
+    info.textContent =
+      "No layer selected";
+
+    return;
+  }
+
+  info.textContent =
+    `${layer.type} • X ${Math.round(layer.x)}% • Y ${Math.round(layer.y)}% • ${Math.round(layer.w)}% × ${Math.round(layer.h)}%`;
+}
+
+
+function updateStyleControls() {
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) return;
+
+  document.getElementById(
+    "opacityRange"
+  ).value =
+    layer.data.opacity ?? 100;
+
+  document.getElementById(
+    "blurRange"
+  ).value =
+    layer.data.blur ?? 0;
+}
+
+
+/* =========================================================
+   DRAG + RESIZE
+   ========================================================= */
+
+function startDrag(
+  event,
+  layer,
+  mode
+) {
+
+  event.preventDefault();
+
+  selectedId =
+    layer.id;
+
+  const rect =
+    document
+      .getElementById(
+        "previewWrap"
+      )
+      .getBoundingClientRect();
+
+  dragState = {
+    layer,
+    mode,
+    startX: event.clientX,
+    startY: event.clientY,
+    origX: layer.x,
+    origY: layer.y,
+    origW: layer.w,
+    origH: layer.h,
+    rect
+  };
+
+  window.addEventListener(
+    "mousemove",
+    onDrag
+  );
+
+  window.addEventListener(
+    "mouseup",
+    stopDrag
+  );
+
+  buildAll();
+}
+
+
+function onDrag(event) {
+
+  if (!dragState) return;
+
+  const dx =
+    ((event.clientX -
+      dragState.startX) /
+      dragState.rect.width) *
+    100;
+
+  const dy =
+    ((event.clientY -
+      dragState.startY) /
+      dragState.rect.height) *
+    100;
+
+  const layer =
+    dragState.layer;
+
+  const mode =
+    dragState.mode;
+
+
+  if (mode === "move") {
+
+    layer.x =
+      clamp(
+        dragState.origX + dx,
+        0,
+        100 - dragState.origW
+      );
+
+    layer.y =
+      clamp(
+        dragState.origY + dy,
+        0,
+        100 - dragState.origH
+      );
+
+  } else {
+
+    if (mode.includes("br")) {
+
+      layer.w =
+        Math.max(
+          5,
+          dragState.origW + dx
+        );
+
+      layer.h =
+        Math.max(
+          5,
+          dragState.origH + dy
+        );
+    }
+
+
+    if (mode.includes("tr")) {
+
+      layer.w =
+        Math.max(
+          5,
+          dragState.origW + dx
+        );
+
+      layer.h =
+        Math.max(
+          5,
+          dragState.origH - dy
+        );
+
+      layer.y =
+        dragState.origY + dy;
+    }
+
+
+    if (mode.includes("bl")) {
+
+      layer.w =
+        Math.max(
+          5,
+          dragState.origW - dx
+        );
+
+      layer.h =
+        Math.max(
+          5,
+          dragState.origH + dy
+        );
+
+      layer.x =
+        dragState.origX + dx;
+    }
+
+
+    if (mode.includes("tl")) {
+
+      layer.w =
+        Math.max(
+          5,
+          dragState.origW - dx
+        );
+
+      layer.h =
+        Math.max(
+          5,
+          dragState.origH - dy
+        );
+
+      layer.x =
+        dragState.origX + dx;
+
+      layer.y =
+        dragState.origY + dy;
+    }
+
+
+    if (mode.includes("mr")) {
+
+      layer.w =
+        Math.max(
+          5,
+          dragState.origW + dx
+        );
+    }
+
+
+    if (mode.includes("ml")) {
+
+      layer.w =
+        Math.max(
+          5,
+          dragState.origW - dx
+        );
+
+      layer.x =
+        dragState.origX + dx;
+    }
+
+
+    layer.x =
+      clamp(layer.x, 0, 95);
+
+    layer.y =
+      clamp(layer.y, 0, 95);
+
+    layer.w =
+      clamp(
+        layer.w,
+        5,
+        100 - layer.x
+      );
+
+    layer.h =
+      clamp(
+        layer.h,
+        5,
+        100 - layer.y
+      );
+  }
+
+  buildAll();
+}
+
+
+function stopDrag() {
+
+  window.removeEventListener(
+    "mousemove",
+    onDrag
+  );
+
+  window.removeEventListener(
+    "mouseup",
+    stopDrag
+  );
+
+  dragState = null;
+
+  saveSceneLayers();
+}
+
+
+/* =========================================================
+   LAYER CONTROLS
+   ========================================================= */
+
+function fillSelected() {
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) return;
+
+  layer.x = 0;
+  layer.y = 0;
+  layer.w = 100;
+  layer.h = 100;
+
+  buildAll();
+  saveSceneLayers();
+}
+
+
+function centerSelected() {
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) return;
+
+  layer.x =
+    (100 - layer.w) / 2;
+
+  layer.y =
+    (100 - layer.h) / 2;
+
+  buildAll();
+  saveSceneLayers();
+}
+
+
+function bringForward() {
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) return;
+
+  const highest =
+    Math.max(
+      ...layers.map(
+        l => l.order
+      ),
+      0
+    );
+
+  layer.order =
+    highest + 1;
+
+  buildAll();
+  saveSceneLayers();
+}
+
+
+function sendBack() {
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) return;
+
+  const lowest =
+    Math.min(
+      ...layers.map(
+        l => l.order
+      ),
+      0
+    );
+
+  layer.order =
+    lowest - 1;
+
+  buildAll();
+  saveSceneLayers();
+}
+
+
+function deleteLayer(id) {
+
+  layers =
+    layers.filter(
+      layer =>
+        String(layer.id) !==
+        String(id)
+    );
+
+  if (
+    String(selectedId) ===
+    String(id)
+  ) {
+    selectedId = null;
+  }
+
+  buildAll();
+  saveSceneLayers();
+}
+
+
+function updateStyle() {
+
+  const layer =
+    layers.find(
+      l => l.id === selectedId
+    );
+
+  if (!layer) return;
+
+  layer.data.opacity =
+    parseInt(
+      document.getElementById(
+        "opacityRange"
+      ).value
+    );
+
+  layer.data.blur =
+    parseInt(
+      document.getElementById(
+        "blurRange"
+      ).value
+    );
+
+  buildAll();
+}
+
+
+/* =========================================================
+   TEXT + LOWER THIRD
+   ========================================================= */
+
+function applyText() {
+
+  const text =
+    document
+      .getElementById(
+        "textInput"
+      )
+      .value
+      .trim();
+
+  if (!text) return;
+
+  createLayer(
+    "text",
+    {
+      text,
+      size: parseInt(
+        document.getElementById(
+          "fontSize"
+        ).value
+      ),
+      color:
+        document.getElementById(
+          "textColor"
+        ).value,
+      scroll:
+        document.getElementById(
+          "scrollCheck"
+        ).checked,
+      speed:
+        parseInt(
+          document.getElementById(
+            "scrollSpeed"
+          ).value
+        )
+    }
+  );
+
+  document.getElementById(
+    "textInput"
+  ).value = "";
+
+  closeTextModal();
+}
+
+
+function applyLowerThird() {
+
+  createLayer(
+    "lowerThird",
+    {
+      name:
+        document.getElementById(
+          "ltName"
+        ).value ||
+        "NOVEX STUDIO PRO",
+
+      title:
+        document.getElementById(
+          "ltTitle"
+        ).value ||
+        "LIVE",
+
+      c1:
+        document.getElementById(
+          "ltColor1"
+        ).value,
+
+      c2:
+        document.getElementById(
+          "ltColor2"
+        ).value,
+
+      style:
+        document.getElementById(
+          "ltStyle"
+        ).value
+    }
+  );
+
+  closeLowerThird();
+}
+
+
+/* =========================================================
+   LOGO
+   ========================================================= */
+
+logoInput.onchange = event => {
+
+  const file =
+    event.target.files[0];
+
+  if (!file) return;
+
+  const reader =
+    new FileReader();
+
+  reader.onload = e => {
+
+    const img =
+      new Image();
+
+    img.src =
+      e.target.result;
+
+    img.onload = () => {
+
+      createLayer(
+        "image",
+        {
+          img
+        }
+      );
+
+    };
+
+  };
+
+  reader.readAsDataURL(file);
+};
+
+
+/* =========================================================
+   CAMERA / SCREEN
+   ========================================================= */
+
+async function previewSource(type) {
+
+  try {
+
+    stopPreviewStream();
+
+    currentSource = type;
+
+
+    if (type === "camera") {
+
+      const constraints = {
+
+        video:
+          selectedCamera
+            ? {
+                deviceId: {
+                  exact:
+                    selectedCamera
+                }
+              }
+            : true,
+
+        audio:
+          selectedMic
+            ? {
+                deviceId: {
+                  exact:
+                    selectedMic
+                }
+              }
+            : true
+      };
+
+
+      const stream =
+        await navigator.mediaDevices
+          .getUserMedia(
+            constraints
+          );
+
+      previewStream =
+        stream;
+
+      camVideo.srcObject =
+        stream;
+
+      await camVideo.play();
+
+      removeCameraLayers();
+
+      createLayer(
+        "camera",
+        {}
+      );
+
+      startMicMeter(stream);
+
+      updateSourceStatus(
+        "📷 CAMERA ACTIVE"
+      );
+
+      return;
+    }
+
+
+    if (type === "screen") {
+
+      const stream =
+        await navigator.mediaDevices
+          .getDisplayMedia({
+
+            video: {
+              cursor: "always"
+            },
+
+            audio: true
+          });
+
+      previewStream =
+        stream;
+
+      camVideo.srcObject =
+        stream;
+
+      await camVideo.play();
+
+      removeCameraLayers();
+
+      createLayer(
+        "camera",
+        {}
+      );
+
+      startMicMeter(
+        stream
+      );
+
+      updateSourceStatus(
+        "🖥️ SCREEN ACTIVE"
+      );
+
+
+      const videoTrack =
+        stream.getVideoTracks()[0];
+
+      if (videoTrack) {
+
+        videoTrack.onended = () => {
+
+          stopPreviewStream();
+
+          updateSourceStatus(
+            "SCREEN ENDED"
+          );
+        };
+      }
+    }
+
+  } catch (error) {
+
+    console.error(error);
+
+    updateSourceStatus(
+      "SOURCE ERROR"
+    );
+
+    alert(
+      "Unable to start source:\n\n" +
+      error.message
+    );
+  }
+}
+
+
+function removeCameraLayers() {
+
+  layers =
+    layers.filter(
+      layer =>
+        layer.type !== "camera"
+    );
+
+  selectedId = null;
+
+  buildAll();
+}
+
+
+function stopPreviewStream() {
+
+  if (previewStream) {
+
+    previewStream
+      .getTracks()
+      .forEach(
+        track =>
+          track.stop()
+      );
+
+    previewStream = null;
+  }
+
+  stopMicMeter();
+}
+
+
+/* =========================================================
+   MICROPHONE LEVEL METER
+   ========================================================= */
+
+async function startMicMeter(stream) {
+
+  stopMicMeter();
+
+  const audioTracks =
+    stream.getAudioTracks();
+
+  if (!audioTracks.length) {
+
+    micMeter.style.width =
+      "0%";
+
+    micDb.textContent =
+      "-inf";
+
+    return;
+  }
+
+
+  try {
+
+    audioContext =
+      new (
+        window.AudioContext ||
+        window.webkitAudioContext
+      )();
+
+    const source =
+      audioContext.createMediaStreamSource(
+        stream
+      );
+
+    micAnalyser =
+      audioContext.createAnalyser();
+
+    micAnalyser.fftSize =
+      256;
+
+    source.connect(
+      micAnalyser
+    );
+
+    const data =
+      new Uint8Array(
+        micAnalyser.fftSize
+      );
+
+
+    function updateMeter() {
+
+      if (!micAnalyser) return;
+
+      micAnalyser.getByteTimeDomainData(
+        data
+      );
+
+      let sum = 0;
+
+      for (
+        let i = 0;
+        i < data.length;
+        i++
+      ) {
+
+        const normalized =
+          (data[i] - 128) / 128;
+
+        sum +=
+          normalized *
+          normalized;
+      }
+
+      const rms =
+        Math.sqrt(
+          sum / data.length
+        );
+
+      const db =
+        rms > 0
+          ? 20 * Math.log10(rms)
+          : -60;
+
+      const level =
+        clamp(
+          ((db + 60) / 60) * 100,
+          0,
+          100
+        );
+
+      micMeter.style.width =
+        level + "%";
+
+      micDb.textContent =
+        db <= -59
+          ? "-inf"
+          : Math.round(db) + " dB";
+
+      micAnimation =
+        requestAnimationFrame(
+          updateMeter
+        );
+    }
+
+    updateMeter();
+
+  } catch (error) {
+
+    console.warn(
+      "Microphone meter:",
+      error
+    );
+  }
+}
+
+
+function stopMicMeter() {
+
+  if (micAnimation) {
+
+    cancelAnimationFrame(
+      micAnimation
+    );
+
+    micAnimation = null;
+  }
+
+  if (audioContext) {
+
+    audioContext.close()
+      .catch(() => {});
+
+    audioContext = null;
+  }
+
+  micAnalyser = null;
+
+  micMeter.style.width =
+    "0%";
+
+  micDb.textContent =
+    "-inf";
+}
+
+
+/* =========================================================
+   RESOLUTION
+   ========================================================= */
+
+function setRes(width, height, button) {
+
+  saveSceneLayers();
+
+  resW = width;
+  resH = height;
+
+  previewCanvas.width =
+    width;
+
+  previewCanvas.height =
+    height;
+
+  liveCanvas.width =
+    width;
+
+  liveCanvas.height =
+    height;
+
+
+  document
+    .querySelectorAll(
+      ".res-group .btn-small"
+    )
+    .forEach(
+      element =>
+        element.classList.remove(
+          "active"
+        )
+    );
+
+  if (button) {
+    button.classList.add(
+      "active"
+    );
+  }
+
+  buildAll();
+}
+
+
+/* =========================================================
+   RENDER ENGINE
+   ========================================================= */
+
+function render() {
+
+  drawBackground(
+    previewCtx
+  );
+
+
+  const sorted =
+    [...layers].sort(
+      (a, b) =>
+        a.order - b.order
+    );
+
+
+  sorted.forEach(layer => {
+
+    const x =
+      (layer.x / 100) *
+      resW;
+
+    const y =
+      (layer.y / 100) *
+      resH;
+
+    const width =
+      (layer.w / 100) *
+      resW;
+
+    const height =
+      (layer.h / 100) *
+      resH;
+
+
+    previewCtx.save();
+
+    previewCtx.globalAlpha =
+      (layer.data.opacity ?? 100) /
+      100;
+
+
+    if (layer.data.blur) {
+
+      previewCtx.filter =
+        `blur(${layer.data.blur}px)`;
+    }
+
+
+    /* CAMERA */
+
+    if (
+      layer.type === "camera" &&
+      camVideo.readyState >= 2
+    ) {
+
+      drawCover(
+        previewCtx,
+        camVideo,
+        x,
+        y,
+        width,
+        height
+      );
+    }
+
+
+    /* IMAGE / LOGO */
+
+    if (
+      layer.type === "image" &&
+      layer.data.img
+    ) {
+
+      previewCtx.drawImage(
+        layer.data.img,
+        x,
+        y,
+        width,
+        height
+      );
+    }
+
+
+    /* TEXT */
+
+    if (
+      layer.type === "text"
+    ) {
+
+      renderText(
+        previewCtx,
+        layer,
+        x,
+        y,
+        width,
+        height
+      );
+    }
+
+
+    /* LOWER THIRD */
+
+    if (
+      layer.type === "lowerThird"
+    ) {
+
+      renderLowerThird(
+        previewCtx,
+        layer,
+        x,
+        y,
+        width,
+        height
+      );
+    }
+
+
+    previewCtx.restore();
+
+  });
+
+
+  if (
+    liveCanvas.dataset.live ===
+    "true"
+  ) {
+
+    liveCtx.clearRect(
+      0,
+      0,
+      resW,
+      resH
+    );
+
+    liveCtx.drawImage(
+      previewCanvas,
+      0,
+      0
+    );
+  }
+
+
+  requestAnimationFrame(
+    render
+  );
+}
+
+
+/* =========================================================
+   TEXT RENDERING
+   ========================================================= */
+
+function renderText(
+  ctx,
+  layer,
+  x,
+  y,
+  width,
+  height
+) {
+
+  const size =
+    parseInt(
+      layer.data.size
+    ) || 56;
+
+  ctx.fillStyle =
+    layer.data.color ||
+    "#fff";
+
+  ctx.font =
+    `800 ${size}px Inter, Arial, sans-serif`;
+
+  ctx.textBaseline =
+    "middle";
+
+
+  if (layer.data.scroll) {
+
+    if (
+      typeof layer.scrollX !==
+      "number"
+    ) {
+      layer.scrollX =
+        resW;
+    }
+
+    layer.scrollX -=
+      Number(
+        layer.data.speed || 5
+      ) * 0.35;
+
+    const textWidth =
+      ctx.measureText(
+        layer.data.text
+      ).width;
+
+    if (
+      layer.scrollX <
+      -textWidth
+    ) {
+
+      layer.scrollX =
+        resW;
+    }
+
+    ctx.fillText(
+      layer.data.text,
+      layer.scrollX,
+      y + height / 2
+    );
+
+  } else {
+
+    ctx.textAlign =
+      "center";
+
+    ctx.fillText(
+      layer.data.text,
+      x + width / 2,
+      y + height / 2
+    );
+
+    ctx.textAlign =
+      "left";
+  }
+}
+
+
+/* =========================================================
+   LOWER THIRD RENDERING
+   ========================================================= */
+
+function renderLowerThird(
+  ctx,
+  layer,
+  x,
+  y,
+  width,
+  height
+) {
+
+  const style =
+    layer.data.style ||
+    "gradient";
+
+
+  let background;
+
+
+  if (style === "solid") {
+
+    background =
+      layer.data.c1 ||
+      "#7c5cff";
+
+  } else if (
+    style === "news"
+  ) {
+
+    background =
+      "#c91f3a";
+
+  } else if (
+    style === "gold"
+  ) {
+
+    background =
+      "#b8860b";
+
+  } else {
+
+    background =
+      ctx.createLinearGradient(
+        x,
+        y,
+        x + width,
+        y
+      );
+
+    background.addColorStop(
+      0,
+      layer.data.c1 ||
+        "#7c5cff"
+    );
+
+    background.addColorStop(
+      1,
+      layer.data.c2 ||
+        "#22c55e"
+    );
+  }
+
+
+  ctx.fillStyle =
+    background;
+
+  ctx.fillRect(
+    x,
+    y,
+    width,
+    height
+  );
+
+
+  const name =
+    layer.data.name ||
+    "NOVEX STUDIO PRO";
+
+  const title =
+    layer.data.title ||
+    "LIVE";
+
+
+  ctx.fillStyle =
+    "#ffffff";
+
+  ctx.textAlign =
+    "left";
+
+  ctx.textBaseline =
+    "middle";
+
+
+  ctx.font =
+    `900 ${Math.max(
+      18,
+      height * 0.34
+    )}px Inter, Arial`;
+
+  ctx.fillText(
+    name,
+    x + 18,
+    y + height * 0.38
+  );
+
+
+  ctx.font =
+    `600 ${Math.max(
+      12,
+      height * 0.19
+    )}px Inter, Arial`;
+
+  ctx.globalAlpha =
+    0.85;
+
+  ctx.fillText(
+    title,
+    x + 18,
+    y + height * 0.72
+  );
+
+  ctx.globalAlpha =
+    1;
+}
+
+
+/* =========================================================
+   LIVE
+   ========================================================= */
+
+function goLive() {
+
+  liveCanvas.dataset.live =
+    "true";
+
+  liveBadge.textContent =
+    "● LIVE";
+
+  updateSourceStatus(
+    "LIVE OUTPUT ACTIVE"
+  );
+}
+
+
+/* =========================================================
+   RECORDING
+   ========================================================= */
+
+function getSupportedMimeType() {
+
+  const types = [
+    "video/webm;codecs=vp9,opus",
+    "video/webm;codecs=vp8,opus",
+    "video/webm"
+  ];
+
+  return (
+    types.find(
+      type =>
+        MediaRecorder.isTypeSupported(
+          type
+        )
+    ) || ""
+  );
+}
+
+
+function toggleRecord() {
+
+  if (isRecording) {
+
+    stopRecording();
+
+  } else {
+
+    startRecording();
+  }
+}
+
+
+function startRecording() {
+
+  if (
+    !window.MediaRecorder
+  ) {
+
+    alert(
+      "Your browser does not support video recording."
+    );
+
+    return;
+  }
+
+
+  try {
+
+    const canvasStream =
+      previewCanvas.captureStream(
+        30
+      );
+
+
+    if (previewStream) {
+
+      previewStream
+        .getAudioTracks()
+        .forEach(
+          track =>
+            canvasStream.addTrack(
+              track.clone()
+            )
+        );
+    }
+
+
+    const mimeType =
+      getSupportedMimeType();
+
+
+    mediaRecorder =
+      mimeType
+        ? new MediaRecorder(
+            canvasStream,
+            { mimeType }
+          )
+        : new MediaRecorder(
+            canvasStream
+          );
+
+
+    recordedChunks = [];
+
+
+    mediaRecorder.ondataavailable =
+      event => {
+
+        if (
+          event.data &&
+          event.data.size > 0
+        ) {
+
+          recordedChunks.push(
+            event.data
+          );
+        }
+      };
+
+
+    mediaRecorder.onerror =
+      event => {
+
+        console.error(
+          "Recorder error:",
+          event
+        );
+
+        stopRecording();
+      };
+
+
+    mediaRecorder.onstop =
+      downloadRecording;
+
+
+    mediaRecorder.start(
+      1000
+    );
+
+    isRecording = true;
+
+    recordingStart =
+      Date.now();
+
+    recBtn.textContent =
+      "■ STOP";
+
+    bottomRecBtn.textContent =
+      "■ STOP";
+
+    recTime.style.display =
+      "inline";
+
+    updateRecordingTimer();
+
+    recordingTimer =
+      setInterval(
+        updateRecordingTimer,
+        1000
+      );
+
+  } catch (error) {
+
+    console.error(error);
+
+    alert(
+      "Unable to start recording:\n\n" +
+      error.message
+    );
+  }
+}
+
+
+function stopRecording() {
+
+  if (
+    mediaRecorder &&
+    mediaRecorder.state !==
+      "inactive"
+  ) {
+
+    mediaRecorder.stop();
+  }
+
+
+  isRecording = false;
+
+
+  if (recordingTimer) {
+
+    clearInterval(
+      recordingTimer
+    );
+
+    recordingTimer = null;
+  }
+
+
+  recBtn.textContent =
+    "● REC";
+
+  bottomRecBtn.textContent =
+    "● REC";
+}
+
+
+function updateRecordingTimer() {
+
+  if (!isRecording) return;
+
+  const seconds =
+    Math.floor(
+      (Date.now() -
+        recordingStart) /
+      1000
+    );
+
+  const minutes =
+    Math.floor(
+      seconds / 60
+    );
+
+  const remaining =
+    seconds % 60;
+
+
+  recTime.textContent =
+    `● REC ${String(
+      minutes
+    ).padStart(2, "0")}:${String(
+      remaining
+    ).padStart(2, "0")}`;
+}
+
+
+function downloadRecording() {
+
+  if (!recordedChunks.length) {
+
+    alert(
+      "No recording data was captured."
+    );
+
+    return;
+  }
+
+
+  const blob =
+    new Blob(
+      recordedChunks,
+      {
+        type:
+          mediaRecorder.mimeType ||
+          "video/webm"
+      }
+    );
+
+
+  const url =
+    URL.createObjectURL(
+      blob
+    );
+
+  const link =
+    document.createElement("a");
+
+  link.href =
+    url;
+
+  link.download =
+    `NOVEX-${new Date()
+      .toISOString()
+      .replace(/[:.]/g, "-")}.webm`;
+
+  document.body.appendChild(
+    link
+  );
+
+  link.click();
+
+  link.remove();
+
+
+  setTimeout(
+    () =>
+      URL.revokeObjectURL(
+        url
+      ),
+    5000
+  );
+}
+
+
+/* =========================================================
+   SAVE / LOAD
+   ========================================================= */
+
+function saveLayout(showMessage = true) {
+
+  saveSceneLayers();
+
+  try {
+
+    localStorage.setItem(
+      "novexStudioPro",
+      JSON.stringify({
+        version: 2,
+        scenes,
+        activeSceneId,
+        bg
+      })
+    );
+
+    if (showMessage) {
+
+      alert(
+        "NOVEX STUDIO PRO layout saved."
+      );
+    }
+
+  } catch (error) {
+
+    console.error(
+      "Save failed:",
+      error
+    );
+
+    if (showMessage) {
+
+      alert(
+        "Unable to save the layout."
+      );
+    }
+  }
+}
+
+
+function loadLayout() {
+
+  try {
+
+    const saved =
+      localStorage.getItem(
+        "novexStudioPro"
+      );
+
+    if (!saved) return;
+
+    const data =
+      JSON.parse(saved);
+
+
+    if (
+      Array.isArray(
+        data.scenes
+      ) &&
+      data.scenes.length
+    ) {
+
+      scenes =
+        data.scenes;
+    }
+
+
+    if (data.activeSceneId) {
+
+      activeSceneId =
+        data.activeSceneId;
+    }
+
+
+    if (data.bg) {
+
+      bg = {
+        ...bg,
+        ...data.bg
+      };
+    }
+
+
+    renderScenes();
+
+    loadSceneLayers();
+
+    updateBgStatus();
+
+  } catch (error) {
+
+    console.warn(
+      "Could not load saved layout:",
+      error
+    );
+  }
+}
+
+
+/* =========================================================
+   WHIP LIVE STREAMING
+   ========================================================= */
+
+async function startRealWHIP() {
+
+  const url =
+    document
+      .getElementById(
+        "whipUrl"
+      )
+      .value
+      .trim();
+
+  const token =
+    document
+      .getElementById(
+        "whipToken"
+      )
+      .value
+      .trim();
+
+
+  if (!url) {
+
+    alert(
+      "Paste your WHIP URL first."
+    );
+
+    return;
+  }
+
+
+  try {
+
+    const stream =
+      previewCanvas.captureStream(
+        30
+      );
+
+
+    if (previewStream) {
+
+      previewStream
+        .getAudioTracks()
+        .forEach(
+          track =>
+            stream.addTrack(
+              track.clone()
+            )
+        );
+    }
+
+
+    whipPC =
+      new RTCPeerConnection();
+
+
+    stream
+      .getTracks()
+      .forEach(
+        track =>
+          whipPC.addTrack(
+            track,
+            stream
+          )
+      );
+
+
+    const offer =
+      await whipPC.createOffer();
+
+
+    await whipPC.setLocalDescription(
+      offer
+    );
+
+
+    const headers = {
+      "Content-Type":
+        "application/sdp"
+    };
+
+
+    if (token) {
+
+      headers.Authorization =
+        "Bearer " + token;
+    }
+
+
+    const response =
+      await fetch(
+        url,
+        {
+          method: "POST",
+          headers,
+          body: offer.sdp
+        }
+      );
+
+
+    if (!response.ok) {
+
+      throw new Error(
+        `WHIP server returned HTTP ${response.status}`
+      );
+    }
+
+
+    const answer =
+      await response.text();
+
+
+    await whipPC.setRemoteDescription({
+      type: "answer",
+      sdp: answer
+    });
+
+
+    liveCanvas.dataset.live =
+      "true";
+
+    liveBadge.textContent =
+      "● LIVE FB/YT/TIKTOK";
+
+    recTime.style.display =
+      "inline";
+
+    recTime.textContent =
+      "● LIVE NOVEX";
+
+
+    closeGoLiveModal();
+
+  } catch (error) {
+
+    console.error(
+      "WHIP error:",
+      error
+    );
+
+    alert(
+      "Unable to start live stream:\n\n" +
+      error.message
+    );
+  }
+}
+
+
+function stopWHIP() {
+
+  if (whipPC) {
+
+    whipPC.close();
+    whipPC = null;
+  }
+
+  liveCanvas.dataset.live =
+    "false";
+
+  liveBadge.textContent =
+    "● OFF";
+
+  if (!isRecording) {
+
+    recTime.style.display =
+      "none";
+  }
+}
+
+
+/* =========================================================
+   HELPERS
+   ========================================================= */
+
+function clamp(
+  value,
+  min,
+  max
+) {
+
+  return Math.min(
+    Math.max(
+      value,
+      min
+    ),
+    max
+  );
+}
+
+
+function escapeHTML(value) {
+
+  return String(value)
+    .replace(
+      /&/g,
+      "&amp;"
+    )
+    .replace(
+      /</g,
+      "&lt;"
+    )
+    .replace(
+      />/g,
+      "&gt;"
+    )
+    .replace(
+      /"/g,
+      "&quot;"
+    )
+    .replace(
+      /'/g,
+      "&#039;"
+    );
+}
+
+
+function updateSourceStatus(
+  message
+) {
+
+  const info =
+    document.getElementById(
+      "selectedInfo"
+    );
+
+  if (info) {
+    info.textContent =
+      message;
+  }
+}
+
+
+/* =========================================================
+   STARTUP
+   ========================================================= */
+
 renderScenes();
-async function initDevices(){try{await navigator.mediaDevices.getUserMedia({video:true,audio:true}).then(s=>s.getTracks().forEach(t=>t.stop()))}catch(e){} const all=await navigator.mediaDevices.enumerateDevices(); const cams=all.filter(d=>d.kind==='videoinput'), mics=all.filter(d=>d.kind==='audioinput'); const sorted=[...cams].sort((a,b)=>{const ad=a.label.toLowerCase().includes('droid'), bd=b.label.toLowerCase().includes('droid'); if(ad&&!bd) return 1; if(!ad&&bd) return -1; return 0;}); document.getElementById('cameraSelect').innerHTML=sorted.map(d=>`<option value="${d.deviceId}">${d.label}</option>`).join(''); document.getElementById('micSelect').innerHTML=mics.map(d=>`<option value="${d.deviceId}">${d.label}</option>`).join(''); if(!selectedCamera){const pc=sorted.find(c=>!c.label.toLowerCase().includes('droid'))||sorted[0]; if(pc) selectedCamera=pc.deviceId;} if(!selectedMic&&mics[0]) selectedMic=mics[0].deviceId; return sorted;}
-initDevices();
-function forcePCcam(){initDevices().then(s=>{const pc=s.find(c=>!c.label.toLowerCase().includes('droid')); if(pc){selectedCamera=pc.deviceId; previewSource('camera'); closeSettings();}});}
-function openSettings(){document.getElementById('settingsOverlay').classList.add('active');}function closeSettings(){selectedCamera=document.getElementById('cameraSelect').value; selectedMic=document.getElementById('micSelect').value; document.getElementById('settingsOverlay').classList.remove('active'); previewSource('camera');}
-function openTextModal(){document.getElementById('textOverlay').classList.add('active');}function closeTextModal(){document.getElementById('textOverlay').classList.remove('active');}
-function openLowerThird(){document.getElementById('lowerOverlay').classList.add('active');}function closeLowerThird(){document.getElementById('lowerOverlay').classList.remove('active');}
-function openGoLiveModal(){document.getElementById('goLiveOverlay').classList.add('active');}function closeGoLiveModal(){document.getElementById('goLiveOverlay').classList.remove('active');}
-function setBg(t,v){bg.type=t; if(t==='color')bg.value=v; if(t==='gradient')bg.value='gradient'; if(t==='blur'){bg.blur=parseInt(v)||18; bg.type='blur';} document.getElementById('bgStatus').textContent='BG: '+t;}
-function loadPresetBg(url){bgImg=new Image(); bgImg.crossOrigin='anonymous'; bgImg.src=url; bgImg.onload=()=>{bg.type='image'; document.getElementById('bgStatus').textContent='BG: Preset Loaded';};}
-bgImageInput.onchange=e=>{const r=new FileReader(); r.onload=ev=>{bgImg=new Image(); bgImg.src=ev.target.result; bg.type='image';}; r.readAsDataURL(e.target.files[0]);};
-bgVideoInput.onchange=e=>{bgVideoEl.src=URL.createObjectURL(e.target.files[0]); bgVideoEl.play(); bg.type='video';};
-bgAudioInput.onchange=e=>{bgAudioEl.src=URL.createObjectURL(e.target.files[0]); bgAudioEl.volume=document.getElementById('bgMusicVol').value/100; bgAudioEl.play();};
-function setBgMusicVol(v){bgAudioEl.volume=v/100;}function stopBgAudio(){bgAudioEl.pause();}
-function drawBackground(){if(bg.type==='color'){previewCtx.fillStyle=bg.value; previewCtx.fillRect(0,0,resW,resH);}else if(bg.type==='gradient'){const g=previewCtx.createLinearGradient(0,0,resW,resH); g.addColorStop(0,'#7c5cff'); g.addColorStop(1,'#22c55e'); previewCtx.fillStyle=g; previewCtx.fillRect(0,0,resW,resH);}else if(bg.type==='image'&&bgImg&&bgImg.complete){previewCtx.drawImage(bgImg,0,0,resW,resH);}else if(bg.type==='video'&&bgVideoEl.readyState>=2){previewCtx.drawImage(bgVideoEl,0,0,resW,resH);}else if(bg.type==='blur'&&camVideo.readyState>=2){previewCtx.save(); previewCtx.filter=`blur(${bg.blur}px)`; previewCtx.drawImage(camVideo,0,0,resW,resH); previewCtx.restore();}else{previewCtx.fillStyle='#000'; previewCtx.fillRect(0,0,resW,resH);}}
-function createLayer(type,data){const id=Date.now()+Math.random(); let l={id,type,x:5,y:5,w:40,h:35,data:{...data,opacity:100,blur:0},scrollX:0,order:layers.length}; if(type==='camera'){l={id,type,x:0,y:0,w:100,h:100,data:{opacity:100,blur:0},order:layers.length};} if(type==='image'){l.x=60;l.y=10;l.w=35;l.h=35;} if(type==='text'){l.x=5;l.y=70;l.w=50;l.h=12; if(data.scroll){l.w=100;l.x=0;l.y=85;}} if(type==='lowerThird'){l.x=2;l.y=78;l.w=42;l.h=16;} layers.push(l); selectedId=id; buildAll(); saveSceneLayers();}
-function buildAll(){layersContainer.innerHTML=''; const sorted=[...layers].sort((a,b)=>a.order-b.order); sorted.forEach(l=>{const div=document.createElement('div'); div.className='layer'+(l.id===selectedId?' selected':''); div.style.left=l.x+'%'; div.style.top=l.y+'%'; div.style.width=l.w+'%'; div.style.height=l.h+'%'; div.innerHTML=`<div class="handle tl"></div><div class="handle tr"></div><div class="handle bl"></div><div class="handle br"></div><div class="handle ml"></div><div class="handle mr"></div>`; div.onmousedown=e=>startDrag(e,l,'move'); div.querySelectorAll('.handle').forEach(h=>{h.onmousedown=e=>{e.stopPropagation(); startDrag(e,l,'resize-'+h.classList[1]);};}); div.onclick=e=>{e.stopPropagation(); selectedId=l.id; buildAll();}; layersContainer.appendChild(div);}); document.getElementById('layerList').innerHTML=sorted.map(l=>`<div class="layer-item ${l.id===selectedId?'selected':''}" onclick="selectedId=${l.id};buildAll()"><span>${l.type} ${Math.round(l.w)}%</span><button onclick="event.stopPropagation();deleteLayer('${l.id}')" style="background:transparent;border:none;color:#ff2d55">🗑️</button></div>`).join('');}
-function startDrag(e,layer,mode){e.preventDefault(); selectedId=layer.id; buildAll(); const rect=document.getElementById('previewWrap').getBoundingClientRect(); dragState={layer,mode,startX:e.clientX,startY:e.clientY,origX:layer.x,origY:layer.y,origW:layer.w,origH:layer.h,rect}; window.addEventListener('mousemove',onDrag); window.addEventListener('mouseup',stopDrag);}
-function onDrag(e){if(!dragState)return; const dx=((e.clientX-dragState.startX)/dragState.rect.width)*100; const dy=((e.clientY-dragState.startY)/dragState.rect.height)*100; let l=dragState.layer; if(dragState.mode==='move'){l.x=Math.max(0,Math.min(100-dragState.origW,dragState.origX+dx)); l.y=Math.max(0,Math.min(100-dragState.origH,dragState.origY+dy));}else{if(dragState.mode.includes('br')){l.w=Math.max(5,dragState.origW+dx); l.h=Math.max(5,dragState.origH+dy);} if(dragState.mode.includes('tr')){l.w=Math.max(5,dragState.origW+dx); l.h=Math.max(5,dragState.origH-dy); l.y=dragState.origY+dy;} if(dragState.mode.includes('bl')){l.w=Math.max(5,dragState.origW-dx); l.h=Math.max(5,dragState.origH+dy); l.x=dragState.origX+dx;} if(dragState.mode.includes('tl')){l.w=Math.max(5,dragState.origW-dx); l.h=Math.max(5,dragState.origH-dy); l.x=dragState.origX+dx; l.y=dragState.origY+dy;} if(dragState.mode.includes('mr'))l.w=Math.max(5,dragState.origW+dx); if(dragState.mode.includes('ml')){l.w=Math.max(5,dragState.origW-dx); l.x=dragState.origX+dx;}} buildAll(); saveSceneLayers();}
-function stopDrag(){window.removeEventListener('mousemove',onDrag); window.removeEventListener('mouseup',stopDrag); dragState=null;}
-function fillSelected(){const s=layers.find(l=>l.id===selectedId); if(s){s.x=0;s.y=0;s.w=100;s.h=100; buildAll();}}function centerSelected(){const s=layers.find(l=>l.id===selectedId); if(s){s.x=(100-s.w)/2;s.y=(100-s.h)/2; buildAll();}}
-function bringForward(){const s=layers.find(l=>l.id===selectedId); if(s){s.order=Math.max(...layers.map(x=>x.order))+1; buildAll();}}function sendBack(){const s=layers.find(l=>l.id===selectedId); if(s){s.order=Math.min(...layers.map(x=>x.order))-1; buildAll();}}
-function deleteLayer(id){layers=layers.filter(l=>String(l.id)!==String(id)); buildAll();}
-function updateStyle(){const s=layers.find(l=>l.id===selectedId); if(!s)return; s.data.opacity=parseInt(document.getElementById('opacityRange').value); s.data.blur=parseInt(document.getElementById('blurRange').value);}
-function applyText(){const t=document.getElementById('textInput').value; if(!t)return; createLayer('text',{text:t,size:document.getElementById('fontSize').value,color:document.getElementById('textColor').value,scroll:document.getElementById('scrollCheck').checked,speed:document.getElementById('scrollSpeed').value}); document.getElementById('textInput').value=''; closeTextModal();}
-function applyLowerThird(){createLayer('lowerThird',{name:document.getElementById('ltName').value||'NOVEX',title:document.getElementById('ltTitle').value||'LIVE',c1:document.getElementById('ltColor1').value,c2:document.getElementById('ltColor2').value,style:document.getElementById('ltStyle').value}); closeLowerThird();}
-logoInput.onchange=e=>{const r=new FileReader(); r.onload=ev=>{const img=new Image(); img.src=ev.target.result; img.onload=()=>createLayer('image',{img});}; r.readAsDataURL(e.target.files[0]);};
-async function previewSource(t){if(previewStream)previewStream.getTracks().forEach(x=>x.stop()); let s=null; if(t==='camera'){s=await navigator.mediaDevices.getUserMedia({video:selectedCamera?{deviceId:selectedCamera}:true,audio:selectedMic?{deviceId:selectedMic}:true}); previewStream=s; camVideo.srcObject=s; await camVideo.play(); if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});} if(t==='screen'){s=await navigator.mediaDevices.getDisplayMedia({video:true}); camVideo.srcObject=s; await camVideo.play(); if(!layers.find(l=>l.type==='camera')) createLayer('camera',{});}}
-function setRes(w,h,b){saveSceneLayers(); resW=w; resH=h; previewCanvas.width=w; previewCanvas.height=h; liveCanvas.width=w; liveCanvas.height=h; document.querySelectorAll('.res-group.btn-small').forEach(x=>x.classList.remove('active')); if(b) b.classList.add('active');}
-function render(){drawBackground(); const sorted=[...layers].sort((a,b)=>a.order-b.order); sorted.forEach(l=>{const x=(l.x/100)*resW,y=(l.y/100)*resH,w=(l.w/100)*resW,h=(l.h/100)*resH; previewCtx.save(); previewCtx.globalAlpha=(l.data.opacity||100)/100; if(l.data.blur) previewCtx.filter=`blur(${l.data.blur}px)`; if(l.type==='camera'&&camVideo.readyState>=2)previewCtx.drawImage(camVideo,x,y,w,h); if(l.type==='image'&&l.data.img)previewCtx.drawImage(l.data.img,x,y,w,h); if(l.type==='text'){previewCtx.fillStyle=l.data.color; previewCtx.font=`bold ${l.data.size}px Inter`; if(l.data.scroll){l.scrollX=(l.scrollX||resW)-l.data.speed; if(l.scrollX<-previewCtx.measureText(l.data.text).width) l.scrollX=resW; previewCtx.fillText(l.data.text,l.scrollX,y+h/2);}else previewCtx.fillText(l.data.text,x+w/2,y+h/1.5);} if(l.type==='lowerThird'){const g=previewCtx.createLinearGradient(x,y,x+w,y); g.addColorStop(0,l.data.c1); g.addColorStop(1,l.data.c2); previewCtx.fillStyle=g; previewCtx.fillRect(x,y,w,h); previewCtx.fillStyle='white'; previewCtx.font=`900 ${h*0.4}px Inter`; previewCtx.fillText(l.data.name,x+10,y+h*0.5);} previewCtx.restore();}); if(liveCanvas.dataset.live==='true'){liveCtx.clearRect(0,0,resW,resH); liveCtx.drawImage(previewCanvas,0,0);} requestAnimationFrame(render);}render();
-function goLive(){liveCanvas.dataset.live='true';}function toggleRecord(){if(isRecording){mediaRecorder.stop(); isRecording=false; recBtn.textContent='● REC'; bottomRecBtn.textContent='● REC'; recTime.style.display='none'; return;} const stream=previewCanvas.captureStream(30); if(previewStream) previewStream.getAudioTracks().forEach(t=>stream.addTrack(t)); mediaRecorder=new MediaRecorder(stream); mediaRecorder.ondataavailable=e=>recordedChunks.push(e.data); mediaRecorder.onstop=()=>{const b=new Blob(recordedChunks,{type:'video/webm'}); const u=URL.createObjectURL(b); const a=document.createElement('a'); a.href=u; a.download=`NOVEX-${Date.now()}.webm`; a.click();}; recordedChunks=[]; mediaRecorder.start(); isRecording=true; recBtn.textContent='■ Stop'; bottomRecBtn.textContent='■ Stop'; recTime.style.display='inline';}
-function saveLayout(){saveSceneLayers(); localStorage.setItem('novex',JSON.stringify({scenes,bg})); alert('Saved NOVEX');}
-async function startRealWHIP(){const url=whipUrl.value.trim(), token=whipToken.value.trim(); if(!url)return alert('Paste WHIP URL'); try{const cs=previewCanvas.captureStream(30); if(previewStream) previewStream.getAudioTracks().forEach(t=>cs.addTrack(t)); whipPC=new RTCPeerConnection(); cs.getTracks().forEach(t=>whipPC.addTrack(t,cs)); const off=await whipPC.createOffer(); await whipPC.setLocalDescription(off); const h={'Content-Type':'application/sdp'}; if(token)h['Authorization']='Bearer '+token; const r=await fetch(url,{method:'POST',headers:h,body:off.sdp}); const ans=await r.text(); await whipPC.setRemoteDescription({type:'answer',sdp:ans}); liveCanvas.dataset.live='true'; liveBadge.textContent='● LIVE FB/YT/TIKTOK'; recTime.style.display='inline'; recTime.textContent='● LIVE NOVEX'; closeGoLiveModal();}catch(e){alert(e.message);}}
-function stopWHIP(){if(whipPC)whipPC.close(); liveBadge.textContent='● OFF';}
-setTimeout(()=>previewSource('camera'),800);
+
+loadLayout();
+
+setTimeout(
+  async () => {
+
+    try {
+
+      await initDevices();
+
+      if (
+        !previewStream
+      ) {
+
+        await previewSource(
+          "camera"
+        );
+      }
+
+    } catch (error) {
+
+      console.warn(
+        "Startup camera:",
+        error
+      );
+    }
+
+  },
+  800
+);
+
+render();
